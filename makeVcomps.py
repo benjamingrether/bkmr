@@ -18,7 +18,7 @@ def makeVcomps(r, lambda_, Z, data_comps):
         V = V + lambda_[1]*data_comps['crossTT']
     cholV = np.linalg.cholesky(V)
     Vinv = np.matmul(np.linalg.inv(cholV).T,np.linalg.inv(cholV))
-    logdetVinv = -2*sum(np.log(np.diagonal(cholV)))
+    logdetVinv = -2.0*sum(np.log(np.diagonal(cholV)))
     Vcomps = {'Vinv': Vinv, 'logdetVinv': logdetVinv}
     return Vcomps
 

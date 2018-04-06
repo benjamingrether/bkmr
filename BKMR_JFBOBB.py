@@ -70,11 +70,11 @@ def SimData(n=50, M=4, sigsq_true=0.5, beta_true=2):
 # starting_values: list of starting values for each parameter. If not specified default values will be chosen.
 # control_params: list of parameters specifying the prior distributions and tuning parameters for the MCMC algorithm. If not specified default values will be chosen.
 # varsel: TRUE or FALSE: indicator for whether to conduct variable selection on the Z variables in \code{h}
-# groups: optional vector (of length \code{M}) of group indictors for fitting hierarchical variable selection if varsel=TRUE. If varsel=TRUE without group specification, component-wise variable selections will be performed.
+# groups: optional vector (of length \code{M}) of group indictors for fitting hierarchical variable selection if varsel=TRUE. If varsel=TRUE without group specification, component-wise variable selections will be performed. Has to be pd.Series type # groups=pd.Series([0,0,1,2,1])
 # rmethod: for those predictors being forced into the \code{h} function, the method for sampling the \code{r[m]} values. Takes the value of 'varying' to allow separate \code{r[m]} for each predictor; 'equal' to force the same \code{r[m]} for each predictor; or 'fixed' to fix the \code{r[m]} to their starting values
 # est.h: TRUE or FALSE: indicator for whether to sample from the posterior distribution of the subject-specific effects h_i within the main sampler. This will slow down the model fitting.
 # return: an object of class "bkmrfit", which has the associated methods:
-def kmbayes(y, Z, X = None, iter = 11, id = None, verbose = True, Znew = None, starting_values = None, control_params = None, varsel = False, groups = None, est_h = False):
+def kmbayes(y, Z, X = None, iter = 11, id = None, verbose = True, Znew = None, starting_values = None, control_params = None, varsel = False, groups = None, rmethod = "equal", est_h = False):
     
     # Argument check: check vector/matrix sizes 
     if groups is not None:
@@ -122,7 +122,7 @@ def kmbayes(y, Z, X = None, iter = 11, id = None, verbose = True, Znew = None, s
              'r': pd.DataFrame(np.full((nsamp,Z.shape[1]),np.nan)),
              'acc_r': pd.DataFrame(np.zeros((nsamp,Z.shape[1]),dtype=bool)),
              'acc_lambda': pd.DataFrame(np.zeros((nsamp,data_comps['nlambda']),dtype=bool)),
-             'delta': pd.DataFrame(np.full((nsamp,Z.shape[1]),1))}
+             'delta': pd.DataFrame(np.full((nsamp,Z.shape[1]),1.0))}
     
     if varsel:
         chain['acc_rdelta'] = pd.DataFrame(np.full(nsamp,0)) 
@@ -143,19 +143,19 @@ def kmbayes(y, Z, X = None, iter = 11, id = None, verbose = True, Znew = None, s
     control_params_default = {'lambda_jump': pd.DataFrame(np.full(data_comps['nlambda'],10.0)),
                               'mu_lambda': pd.DataFrame(np.full(data_comps['nlambda'],10.0)),
                               'sigma_lambda': pd.DataFrame(np.full(data_comps['nlambda'],10.0)),
-                              'a_p0': 1.0,
-                              'b_p0': 1.0,
+                              'a_p0': [1.0],
+                              'b_p0': [1.0],
                               'r_prior': 'invunif',
-                              'a_sigsq': 1e-3,
-                              'b_sigsq': 1e-3,
-                              'mu_r': 5.0,
-                              'sigma_r': 5.0,
-                              'r_muprop': 1.0,
-                              'r_jump': 0.1,
-                              'r_jump1': 2.0,
-                              'r_jump2': 0.1,
-                              'r_a': 0.0,
-                              'r_b': 100.0}
+                              'a_sigsq': [1e-3],
+                              'b_sigsq': [1e-3],
+                              'mu_r': [5.0],
+                              'sigma_r': [5.0],
+                              'r_muprop': [1.0],
+                              'r_jump': [0.1],
+                              'r_jump1': [2.0],
+                              'r_jump2': [0.1],
+                              'r_a': [0.0],
+                              'r_b': [100.0]}
     if control_params is None:
         control_params = control_params_default
     control_params['r_params'] = {'mu_r': control_params['mu_r'],
@@ -244,6 +244,25 @@ def kmbayes(y, Z, X = None, iter = 11, id = None, verbose = True, Znew = None, s
         
         # r
         rSim = chain['r'].iloc[s-1]
+        comp = ztest
+        if varsel: # check if this condition is consistent with comp <- which(!1:ncol(Z) %in% ztest), if (length(comp) != 0)
+            if (rmethod=="equal"): # common r for those variables not being selected
+                varcomps = r_update(r = rSim, whichcomp = comp, delta = chain['delta'].iloc[s-1], lambda_ = chain['lambda'].iloc[s], y = y, X = X, beta = chain['beta'].iloc[s], sigsq_eps = chain['sigsq_eps'].iloc[s], Vcomps = Vcomps, Z = Z, data_comps = data_comps, control_params = control_params, rprior_logdens = rprior_logdens, rprop_gen1 = rprop_gen1, rprop_logdens1 = rprop_logdens1, rprop_gen2 = rprop_gen2, rprop_logdens2 = rprop_logdens2, rprop_gen = rprop_gen, rprop_logdens = rprop_logdens)
+                rSim = varcomps['r']
+                if varcomps['acc']:
+                    Vcomps = varcomps['Vcomps']
+                    chain['acc_r'].iloc[s][comp] = varcomps['acc']
+            elif (rmethod=="varying"): # allow a different r_m ### CHECK IF ACTUALLY WORKS
+                for whichr in comp:
+                    varcomps = r_update(r = rSim, whichcomp = whichr, delta = chain['delta'].iloc[s-1], lambda_ = chain['lambda'].iloc[s], y = y, X = X, beta = chain['beta'].iloc[s], sigsq_eps = chain['sigsq_eps'].iloc[s], Vcomps = Vcomps, Z = Z, data_comps = data_comps, control_params = control_params, rprior_logdens = rprior_logdens, rprop_gen1 = rprop_gen1, rprop_logdens1 = rprop_logdens1, rprop_gen2 = rprop_gen2, rprop_logdens2 = rprop_logdens2, rprop_gen = rprop_gen, rprop_logdens = rprop_logdens)
+                    rSim = varcomps['r']
+                    if varcomps['acc']:
+                        Vcomps = varcomps['Vcomps']
+                        chain['acc_r'].iloc[s][whichr] = varcomps['acc']
+        
+        # for those variables being selected: joint posterior of (r,delta)
+        if varsel:
+            varcomps = rdelta_update(r = rSim, delta = chain['delta'].iloc[s-1], lambda_ = chain['lambda'].iloc[s], y = ycont, X = X, beta = chain['beta'].iloc[s], sigsq_eps = chain['sigsq_eps'].iloc[s], Vcomps = Vcomps, Z = Z, ztest = ztest, data_comps = data_comps, control_params = control_params, rprior_logdens = rprior_logdens, rprop_gen1 = rprop_gen1, rprop_logdens1 = rprop_logdens1, rprop_gen2 = rprop_gen2, rprop_logdens2 = rprop_logdens2, rprop_gen = rprop_gen, rprop_logdens = rprop_logdens)
         
         
         
